@@ -15,7 +15,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/sites-v1', label: 'Sites V1' },
   { href: '/cuadrillas', label: 'Cuadrillas' },
   { href: '/tickets-v1', label: 'Tickets V1' },
-  { href: '/map', label: 'Mapa Leaflet' },
   { href: '/map-google', label: 'Google Maps' },
 ];
 
