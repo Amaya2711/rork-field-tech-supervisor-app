@@ -56,7 +56,8 @@ export default function NuevoTicketV1() {
     service_affected: '',
     site_id: '',
     site_name: '',
-    created_by: ''
+    created_by: '',
+    cuadrilla_id: ''
   });
 
   useEffect(() => {
@@ -201,7 +202,11 @@ export default function NuevoTicketV1() {
         setLoading(false);
         return;
       }
-
+      // Validar cuadrilla_id opcional y convertir a entero si existe
+      let cuadrillaIdValue = null;
+      if (formData.cuadrilla_id && !isNaN(Number(formData.cuadrilla_id))) {
+        cuadrillaIdValue = parseInt(formData.cuadrilla_id, 10);
+      }
       const ticketData = {
         ticket_source: formData.ticket_source || null,
         task_category: formData.task_category || null,
@@ -233,7 +238,24 @@ export default function NuevoTicketV1() {
       }
 
       setMensaje('✅ Ticket V1 creado exitosamente');
-      
+
+      // Insertar registro en CUADRILLA_TICKET_ESTADOS
+      if (data && data.id) {
+        const registroEstado = {
+          ticket_id: data.id,
+          cuadrilla_id: cuadrillaIdValue,
+          fecha_asignacion: new Date().toISOString(),
+          usuario_creacion: USUARIO_ACTUAL() || 'Sistema',
+          estado: 'NUEVO'
+        };
+        const { error: errorEstado } = await supabase
+          .from('cuadrilla_ticket_estados')
+          .insert([registroEstado]);
+        if (errorEstado) {
+          console.error('Error al registrar estado en cuadrilla_ticket_estados:', errorEstado);
+        }
+      }
+
       // Redirigir después de 2 segundos
       setTimeout(() => {
         router.push('/tickets-v1');

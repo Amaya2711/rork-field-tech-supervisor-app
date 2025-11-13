@@ -351,15 +351,15 @@ export default function TicketsV1Page() {
                     <td style={{ padding: '12px', color: '#666' }}>{formatDateTime(t.created_at)}</td>
                     <td style={{ padding: '12px', textAlign: 'center' }}>
                       <Link 
-                        href={`/map?ticket=${t.id}`} 
+                        href={`/map-google?ticket=${t.id}`} 
                         style={{ 
                           padding: '6px 12px', 
                           backgroundColor: '#28a745', 
                           color: 'white', 
                           textDecoration: 'none', 
                           borderRadius: '4px', 
-                          fontSize: '12px',
-                          display: 'inline-block'
+                          fontSize: '12px', 
+                          display: 'inline-block' 
                         }}
                       >
                         MAPA

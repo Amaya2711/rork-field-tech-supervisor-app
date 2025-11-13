@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { googleMapsService } from '@/lib/googleMapsService';
+import { useSearchParams } from 'next/navigation';
 
 // Tipos básicos
 type Punto = {
@@ -14,9 +15,11 @@ type Punto = {
   longitud: number | null;
   tipo: 'site' | 'cuadrilla' | 'ticket';
   estadoTicket?: string | null;
+  estado?: string;
   categoria?: string | null;
   categoriaCuadrilla?: 'A' | 'B' | 'C' | null;
   activo?: boolean;
+  ticket_source?: string | null;
 };
 
 // Tipos para APIs de Google
@@ -576,10 +579,10 @@ export default function GoogleMap() {
     try {
       console.log('🔄 Cargando cuadrillas...');
       
-      // Verificar primero qué columnas existen en cuadrillas_v1
-      console.log('🔍 Verificando estructura de cuadrillas_v1...');
+      // Verificar primero qué columnas existen en cuadrillas
+      console.log('🔍 Verificando estructura de cuadrillas...');
       const { data: sampleCuadrilla, error: sampleError } = await supabase
-        .from('cuadrillas_v1')
+        .from('cuadrillas')
         .select('*')
         .limit(1);
       
@@ -588,13 +591,13 @@ export default function GoogleMap() {
         return;
       }
       
-      console.log('🔍 Estructura de cuadrillas_v1:', sampleCuadrilla?.[0] ? Object.keys(sampleCuadrilla[0]) : 'No data');
+      console.log('🔍 Estructura de cuadrillas:', sampleCuadrilla?.[0] ? Object.keys(sampleCuadrilla[0]) : 'No data');
       
       // Consulta directa sin fetchAll - usando solo campos disponibles
       console.log('📊 Consultando todas las cuadrillas...');
       const { data: cuadrillasRaw, error: cuadrillasError } = await supabase
-        .from('cuadrillas_v1')
-        .select('id, codigo, nombre, latitud, longitud, activo, categoria, skill_1, skill_2, skill_3');
+        .from('cuadrillas')
+        .select('id, codigo, nombre, latitud, longitud, activo, categoria, estado, skill_1, skill_2, skill_3');
       
       if (cuadrillasError) {
         console.error('❌ Error en consulta de cuadrillas:', cuadrillasError);
@@ -625,15 +628,16 @@ export default function GoogleMap() {
       console.log(`📍 Cuadrillas con coordenadas válidas: ${cuadrillasConCoordenadas.length}/${cuadrillasRaw.length}`);
       
       const cuadrillasPoints: Punto[] = cuadrillasConCoordenadas.map((c) => ({
-        id: c.id,
-        codigo: c.codigo || '',
-        nombre: c.nombre || '',
-        region: null, // La tabla cuadrillas_v1 no tiene columna region
-        latitud: c.latitud,
-        longitud: c.longitud,
-        tipo: 'cuadrilla' as const,
-        activo: c.activo,
-        categoriaCuadrilla: c.categoria as 'A' | 'B' | 'C' | null
+  id: c.id,
+  codigo: c.codigo || '',
+  nombre: c.nombre || '',
+  region: null, // La tabla cuadrillas no tiene columna region
+  latitud: c.latitud,
+  longitud: c.longitud,
+  tipo: 'cuadrilla' as const,
+  activo: c.activo,
+  categoriaCuadrilla: c.categoria as 'A' | 'B' | 'C' | null,
+  estado: c.estado || ''
       }));
       
       setCuadrillas(cuadrillasPoints);
@@ -741,8 +745,8 @@ export default function GoogleMap() {
       
       // Consulta principal de tickets con campos básicos
       let mainQuery = supabase
-        .from('tickets_v1')
-        .select('id, site_id, site_name, estado');
+  .from('tickets_v1')
+  .select('id, site_id, site_name, estado, ticket_source');
       
       // Aplicar filtro de estado si se proporciona
       if (estadoFiltro && estadoFiltro !== '') {
@@ -801,7 +805,6 @@ export default function GoogleMap() {
         .map((t) => {
           const siteInfo = sitesMap.get(t.site_id);
           if (!siteInfo) return null;
-          
           return {
             id: t.id,
             codigo: t.site_id || '',
@@ -810,7 +813,8 @@ export default function GoogleMap() {
             latitud: siteInfo.lat,
             longitud: siteInfo.lng,
             tipo: 'ticket' as const,
-            estadoTicket: t.estado
+            estadoTicket: t.estado,
+            ticket_source: t.ticket_source
           };
         })
         .filter(t => t !== null) as Punto[];
@@ -838,9 +842,8 @@ export default function GoogleMap() {
   }, [sites, cuadrillas, tickets]);
 
   // Crear marcadores de Google Maps
-  const createMarkerIcon = (tipo: 'site' | 'cuadrilla' | 'ticket', categoria?: 'A' | 'B' | 'C' | null) => {
-    let color = '#dc3545'; // Rojo por defecto
-    
+  const createMarkerIcon = (tipo: 'site' | 'cuadrilla' | 'ticket', categoria?: 'A' | 'B' | 'C' | null, estado?: string) => {
+  let color = '#dc3545'; // Rojo por defecto
     if (tipo === 'site') {
       color = '#28a745'; // Verde
       return {
@@ -852,9 +855,13 @@ export default function GoogleMap() {
         strokeWeight: 2
       };
     } else if (tipo === 'cuadrilla') {
-      const categoriaColors = getCategoriaColors(categoria);
-      color = categoriaColors.fillColor;
-      
+      // Si la cuadrilla está ASIGNADA, color rojo
+      if (estado === 'ASIGNADO') {
+        color = '#dc3545';
+      } else {
+        const categoriaColors = getCategoriaColors(categoria);
+        color = categoriaColors.fillColor;
+      }
       // Icono de vehículo/camioneta para cuadrillas
       return {
         path: 'M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.22.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z',
@@ -877,7 +884,6 @@ export default function GoogleMap() {
         strokeWeight: 2
       };
     }
-    
     // Fallback para otros tipos
     return {
       path: google.maps.SymbolPath.CIRCLE,
@@ -939,7 +945,7 @@ export default function GoogleMap() {
             position: { lat: cuadrilla.latitud, lng: cuadrilla.longitud },
             map: mapInstanceRef.current,
             title: `${cuadrilla.codigo} - ${cuadrilla.nombre}`,
-            icon: createMarkerIcon('cuadrilla', cuadrilla.categoriaCuadrilla)
+            icon: createMarkerIcon('cuadrilla', cuadrilla.categoriaCuadrilla, cuadrilla.estado)
           });
 
           const infoWindow = new google.maps.InfoWindow({
@@ -987,6 +993,7 @@ export default function GoogleMap() {
                 <p><strong>Región:</strong> ${ticket.region || 'N/A'}</p>
                 <p><strong>Estado:</strong> ${ticket.estadoTicket || 'N/A'}</p>
                 <p><strong>Coordenadas:</strong> ${ticket.latitud}, ${ticket.longitud}</p>
+                <p><strong>ticket_source:</strong> ${ticket.ticket_source || 'N/A'}</p>
                 <button onclick="window.calculateRoutes('${ticket.id}')" 
                         style="background: #007bff; color: white; border: none; padding: 8px 12px; border-radius: 4px; margin-top: 8px; cursor: pointer;">
                   🛣️ Calcular Rutas
@@ -1331,8 +1338,6 @@ export default function GoogleMap() {
     return matchesRegion && matchesEstado;
   });
 
-
-
   // Funciones para manejar checkboxes
   const handleSitesChange = (checked: boolean) => {
     setShowSites(checked);
@@ -1425,21 +1430,114 @@ export default function GoogleMap() {
               <div><strong>Nombre:</strong> ${cuadrilla.nombre || 'N/A'}</div>
               <div><strong>Categoría:</strong> <span style="color: #007bff; font-weight: bold;">${cuadrilla.categoria || 'N/A'}</span></div>
               <div><strong>Región:</strong> ${cuadrilla.region || 'N/A'}</div>
+              <div><strong>Estado:</strong> <span style="color: ${cuadrilla.estado === 'ASIGNADO' ? '#dc3545' : '#198754'}; font-weight: bold;">${cuadrilla.estado || 'N/A'}</span></div>
             </div>
             <div style="font-size: 11px; color: #666;">
               📍 ${cuadrilla.latitud}, ${cuadrilla.longitud}
             </div>
+            <button id="asignar-cuadrilla-btn" style="margin-top:10px;padding:6px 16px;background:#198754;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer;" ${cuadrilla.estado === 'ASIGNADO' ? 'disabled' : ''}>ASIGNAR</button>
           </div>
         `
       });
       
       marker.addListener('click', () => {
         infoWindow.open(mapInstanceRef.current, marker);
+        setTimeout(() => {
+          const btn = document.getElementById('asignar-cuadrilla-btn');
+          if (btn) {
+              btn.onclick = async () => {
+                if (!selectedTicket) {
+                  alert('No hay ticket seleccionado para asignar.');
+                  return;
+                }
+                // Obtener datos
+                const ticketId = selectedTicket.id;
+                const cuadrillaId = cuadrilla.id;
+                const fechaAsignacion = new Date().toISOString();
+                // TODO: Reemplazar por usuario real si está en contexto
+                const usuarioCreacion = 'sistema';
+                // Insertar en CUADRILLA_TICKET_ESTADOS
+                const { error: insertError } = await supabase
+                  .from('cuadrilla_ticket_estados')
+                  .insert({
+                    ticket_id: ticketId,
+                    cuadrilla_id: cuadrillaId,
+                    fecha_asignacion: fechaAsignacion,
+                    usuario_creacion: usuarioCreacion,
+                    estado: 'ASIGNADO'
+                  });
+                if (insertError) {
+                  alert('Error al asignar cuadrilla: ' + insertError.message);
+                  return;
+                }
+                // Actualizar estado del ticket
+                const { error: updateError } = await supabase
+                  .from('tickets_v1')
+                  .update({ estado: 'ASIGNADO' })
+                  .eq('id', ticketId);
+                if (updateError) {
+                  alert('Error al actualizar estado del ticket: ' + updateError.message);
+                  return;
+                }
+                  // Actualizar estado de la cuadrilla
+                  const { error: updateCuadrillaError } = await supabase
+                    .from('cuadrillas_v1')
+                    .update({ estado: 'ASIGNADO' })
+                    .eq('id', cuadrillaId);
+                  if (updateCuadrillaError) {
+                    alert('Error al actualizar estado de la cuadrilla: ' + updateCuadrillaError.message);
+                    return;
+                  }
+                alert(`Cuadrilla asignada correctamente: ${cuadrilla.codigo}`);
+              };
+          }
+        }, 100);
       });
       
       // Abrir automáticamente el info window
       setTimeout(() => {
         infoWindow.open(mapInstanceRef.current, marker);
+        setTimeout(() => {
+          const btn = document.getElementById('asignar-cuadrilla-btn');
+          if (btn) {
+              btn.onclick = async () => {
+                if (!selectedTicket) {
+                  alert('No hay ticket seleccionado para asignar.');
+                  return;
+                }
+                // Obtener datos
+                const ticketId = selectedTicket.id;
+                const cuadrillaId = cuadrilla.id;
+                const fechaAsignacion = new Date().toISOString();
+                // TODO: Reemplazar por usuario real si está en contexto
+                const usuarioCreacion = 'sistema';
+                // Insertar en CUADRILLA_TICKET_ESTADOS
+                const { error: insertError } = await supabase
+                  .from('cuadrilla_ticket_estados')
+                  .insert({
+                    ticket_id: ticketId,
+                    cuadrilla_id: cuadrillaId,
+                    fecha_asignacion: fechaAsignacion,
+                    usuario_creacion: usuarioCreacion,
+                    estado: 'ASIGNADO'
+                  });
+                if (insertError) {
+                  alert('Error al asignar cuadrilla: ' + insertError.message);
+                  return;
+                }
+                // Actualizar estado del ticket
+                const { error: updateError } = await supabase
+                  .from('tickets_v1')
+                  .update({ estado: 'ASIGNADO' })
+                  .eq('id', ticketId);
+                if (updateError) {
+                  alert('Error al actualizar estado del ticket: ' + updateError.message);
+                  return;
+                }
+                alert(`Cuadrilla asignada correctamente: ${cuadrilla.codigo}`);
+              };
+          }
+        }, 500);
       }, 500);
       
       // Parar animación después de 3 segundos
@@ -1543,7 +1641,37 @@ export default function GoogleMap() {
     console.log('🗑️ Filtros limpiados');
   };
 
+  const searchParams = useSearchParams();
+  const ticketIdParam = searchParams.get('ticket');
 
+  useEffect(() => {
+    if (ticketIdParam) {
+      setShowCuadrillas(true);
+      setShowTickets(true);
+    }
+  }, [ticketIdParam]);
+
+  useEffect(() => {
+    if (ticketIdParam && ticketsLoaded && tickets.length > 0) {
+      const ticket = tickets.find(t => String(t.id) === String(ticketIdParam));
+      if (ticket && ticket.latitud && ticket.longitud && mapInstanceRef.current) {
+        setSelectedTicket(ticket);
+        mapInstanceRef.current.setCenter({ lat: ticket.latitud, lng: ticket.longitud });
+        mapInstanceRef.current.setZoom(15);
+        // Opcional: crear marcador especial
+        const marker = new google.maps.Marker({
+          position: { lat: ticket.latitud, lng: ticket.longitud },
+          map: mapInstanceRef.current,
+          title: `Ticket ${ticket.codigo || ticket.id}`,
+          icon: {
+            url: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',
+            scaledSize: new google.maps.Size(40, 40)
+          }
+        });
+        markersRef.current.push(marker);
+      }
+    }
+  }, [ticketIdParam, ticketsLoaded, tickets]);
 
   return (
     <>
@@ -1785,8 +1913,8 @@ export default function GoogleMap() {
                   border: 'none',
                   borderRadius: 4,
                   padding: '4px 8px',
-                  cursor: 'pointer',
-                  fontSize: 11
+                  fontSize: 12,
+                  cursor: 'pointer'
                 }}
               >
                 ✖️
@@ -1795,16 +1923,17 @@ export default function GoogleMap() {
           )}
         </div>
 
-        {/* Fila 2: Controles de Filtro */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 15,
-            flexWrap: 'wrap',
-            marginBottom: 15
-          }}
-        >
+        {/* Fila 2: Selectores y botones de filtro */}
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 15, 
+          marginBottom: 15,
+          padding: '10px',
+          backgroundColor: '#f8f9fa',
+          borderRadius: 6,
+          border: '1px solid #dee2e6'
+        }}>
           {/* Selector de Región */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <label style={{ fontSize: 13, color: '#333', fontWeight: 600 }}>Región:</label>
@@ -2175,6 +2304,53 @@ export default function GoogleMap() {
                   📏 Distancia: {result.distance.toFixed(2)} km<br/>
                   🏷️ Categoría: {result.cuadrilla.categoria || 'N/A'}
                 </div>
+                <button
+                  style={{
+                    marginTop: 8,
+                    padding: '6px 16px',
+                    background: '#198754',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontSize: 12
+                  }}
+                  onClick={async () => {
+                    if (!selectedTicket) {
+                      alert('No hay ticket seleccionado para asignar.');
+                      return;
+                    }
+                    const ticketId = selectedTicket.id;
+                    const cuadrillaId = result.cuadrilla.id;
+                    const fechaAsignacion = new Date().toISOString();
+                    const usuarioCreacion = 'sistema';
+                    const { error: insertError } = await supabase
+                      .from('cuadrilla_ticket_estados')
+                      .insert({
+                        ticket_id: ticketId,
+                        cuadrilla_id: cuadrillaId,
+                        fecha_asignacion: fechaAsignacion,
+                        usuario_creacion: usuarioCreacion,
+                        estado: 'ASIGNADO'
+                      });
+                    if (insertError) {
+                      alert('Error al asignar cuadrilla: ' + insertError.message);
+                      return;
+                    }
+                    const { error: updateError } = await supabase
+                      .from('tickets_v1')
+                      .update({ estado: 'ASIGNADO' })
+                      .eq('id', ticketId);
+                    if (updateError) {
+                      alert('Error al actualizar estado del ticket: ' + updateError.message);
+                      return;
+                    }
+                    alert(`Cuadrilla asignada correctamente: ${result.cuadrilla.codigo}`);
+                  }}
+                >
+                  ASIGNAR
+                </button>
               </div>
             ))}
           </div>
